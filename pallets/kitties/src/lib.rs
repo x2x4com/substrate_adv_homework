@@ -91,13 +91,14 @@ pub mod pallet {
         pub fn create(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            let kitty_id = match Self::kitties_count() {
-                Some(id) => {
-                    ensure!(id != KittyIndex::max_value(), Error::<T>::KittiesCountOverflow);
-                    id
-                },
-                None => 0
-            };
+            // let kitty_id = match Self::kitties_count() {
+            //     Some(id) => {
+            //         ensure!(id != KittyIndex::max_value(), Error::<T>::KittiesCountOverflow);
+            //         id
+            //     },
+            //     None => 0
+            // };
+            let kitty_id = Self::get_kitty_index().unwrap();
 
             let dna = Self::random_value(&who);
 
@@ -159,13 +160,7 @@ pub mod pallet {
             let kitty2= Kitties::<T>::get(&kitty_id_2);
 
 
-            let kitty_id = match Self::kitties_count() {
-                Some(id) => {
-                    ensure!(id != KittyIndex::max_value(), Error::<T>::KittiesCountOverflow);
-                    id
-                },
-                None => 0
-            };
+            let kitty_id = Self::get_kitty_index().unwrap();
 
             let dna_1 = kitty1.dna;
             let dna_2 = kitty2.dna;
@@ -203,6 +198,16 @@ pub mod pallet {
                 <frame_system::Pallet<T>>::extrinsic_index(),
             );
             payload.using_encoded(blake2_128)
+        }
+
+        fn get_kitty_index() -> Result<u32, Error::<T>> {
+            return match Self::kitties_count() {
+                Some(id) => {
+                    ensure!(id != KittyIndex::max_value(), Error::<T>::KittiesCountOverflow);
+                    Ok(id)
+                },
+                None => Ok(0)
+            }
         }
     }
 }
