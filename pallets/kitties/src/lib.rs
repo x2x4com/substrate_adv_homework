@@ -17,6 +17,7 @@ mod benchmarking;
 #[frame_support::pallet]
 pub mod pallet {
     use frame_support::{dispatch::DispatchResult, pallet_prelude::*, traits::Randomness};
+    // use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
     use sp_io::hashing::blake2_128;
     use codec::{Encode, Decode};
@@ -26,23 +27,18 @@ pub mod pallet {
 
     type KittyIndex = u32;
 
+    // emm owner还是从里面拿掉吧
     #[derive(Encode, Decode, Default, PartialEq, Clone)]
-    pub struct Kitty<User> {
-        owner: User,
+    pub struct Kitty<Balance> {
+        price: Balance,
         id: KittyIndex,
         dna: [u8; 16],
 
     }
 
-    // #[derive(Encode, Decode)]
-    // pub struct KittyMarket<User> {
-    //     bid: Vec<Option<MarketDetail<User>>>,
-    //     ask: Vec<Option<MarketDetail<User>>>,
-    // }
-
     /// Configure the pallet by specifying the parameters and types on which it depends.
     #[pallet::config]
-    pub trait Config: frame_system::Config {
+    pub trait Config: frame_system::Config + pallet_balances::Config {
         /// Because this pallet emits events, it depends on the runtime's definition of an event.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type Randomness: Randomness<Self::Hash, Self::BlockNumber>;
@@ -65,16 +61,21 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn kitties_count)]
-    pub type KittiesCount<T> = StorageValue<_, u32>;
+    pub type KittiesCount<T: Config> = StorageValue<_, u32, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn kitties)]
     // pub type Kitties<T: Config> = StorageMap<_, Blake2_128Concat, KittyIndex, Option<Kitty<T::AccountId>>, ValueQuery>;
-    pub type Kitties<T: Config> = StorageMap<_, Blake2_128Concat, KittyIndex, Kitty<T::AccountId>, ValueQuery>;
+    pub type Kitties<T: Config> = StorageMap<_, Blake2_128Concat, KittyIndex, Kitty<T::Balance>, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn owner)]
-    pub type Owner<T: Config> = StorageMap<_, Blake2_128Concat, KittyIndex, Option<T::AccountId>, ValueQuery>;
+    pub type Owner<T: Config> = StorageMap<_, Blake2_128Concat, KittyIndex, Option<T::AccountId>, OptionQuery>;
+
+    // 注意: ValueQuery 和 OptionQuery 差别
+    // 默认为ValueQuery
+    // ValueQuery默认返回Some(v)
+    // let now_count = Self::kitties_count()
 
     // Errors inform users that something went wrong.
     #[pallet::error]
@@ -83,6 +84,7 @@ pub mod pallet {
         NotOwner,
         SameParentIndex,
         InvalidKittyIndex,
+        KittyExisted,
     }
 
     #[pallet::call]
@@ -98,23 +100,51 @@ pub mod pallet {
             //     },
             //     None => 0
             // };
+
+            // 生成一个猫的id
             let kitty_id = Self::get_kitty_index().unwrap();
+            // 保险，保证新猫的id是干净的
+            ensure!(!Kitties::<T>::contains_key(&kitty_id), Error::<T>::KittyExisted);
+            // 保险，保证猫没有主人
+            ensure!(!Owner::<T>::contains_key(&kitty_id), Error::<T>::KittyExisted);
 
             let dna = Self::random_value(&who);
 
             let kitty_obj = Kitty {
-                owner: who.clone(),
+                price: 0u8.into(),
                 id: kitty_id,
                 dna
             };
 
+            // 写入猫信息
             Kitties::<T>::insert(kitty_id, kitty_obj);
 
-            // Owner::<T>::insert(kitty_id, Some(who.clone()));
+            // 为猫设置主人
+            Owner::<T>::insert(kitty_id, Some(&who));
 
-            KittiesCount::<T>::put(kitty_id + 1);
+            // let kitty_id_now = Self::kitties_count();
+            // let new_id = kitty_id_now.checked_add(1).ok_or(Error::<T>::KittiesCountOverflow)?;
+            let new_id = Self::next_kitty_index().unwrap();
+            KittiesCount::<T>::put(new_id);
 
             Self::deposit_event(Event::KittyCreate(who, kitty_id));
+
+            Ok(())
+        }
+
+        #[pallet::weight(0)]
+        pub fn set_price(origin: OriginFor<T>, kitty_id: KittyIndex, new_price: T::Balance) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            ensure!(Kitties::<T>::contains_key(&kitty_id), Error::<T>::InvalidKittyIndex);
+
+            let owner = Self::owner(kitty_id).ok_or(Error::<T>::NotOwner)?;
+
+            ensure!(Some(who) == owner, Error::<T>::NotOwner);
+
+            let mut kitty_obj = Self::kitties(kitty_id);
+            kitty_obj.price = new_price;
+
+            Kitties::<T>::insert(kitty_id, kitty_obj);
 
             Ok(())
         }
@@ -127,17 +157,23 @@ pub mod pallet {
 
             ensure!(Kitties::<T>::contains_key(&kitty_id), Error::<T>::InvalidKittyIndex);
 
-            let kitty_obj = Kitties::<T>::get(&kitty_id);
+            let owner = Self::owner(kitty_id).ok_or(Error::<T>::NotOwner)?;
 
-            ensure!(who.clone() == kitty_obj.owner, Error::<T>::NotOwner);
+            ensure!(Some(who.clone()) == owner, Error::<T>::NotOwner);
+
+            Owner::<T>::insert(kitty_id, Some(new_owner.clone()));
+
+            // let kitty_obj = Kitties::<T>::get(&kitty_id);
+
+            // ensure!(who.clone() == kitty_obj.owner, Error::<T>::NotOwner);
 
             // ensure!(Some(who.clone()) == Owner::<T>::get(kitty_id), Error::<T>::NotOwner);
 
             // Owner::<T>::insert(kitty_id, Some(new_owner.clone()));
 
-            Kitties::<T>::mutate(&kitty_id, |c| {
-                c.owner = new_owner.clone();
-            });
+            // Kitties::<T>::mutate(&kitty_id, |c| {
+            //     c.owner = new_owner.clone();
+            // });
 
             Self::deposit_event(Event::KittyTransfer(who, new_owner, kitty_id));
 
@@ -153,11 +189,15 @@ pub mod pallet {
             ensure!(Kitties::<T>::contains_key(&kitty_id_1), Error::<T>::InvalidKittyIndex);
             ensure!(Kitties::<T>::contains_key(&kitty_id_2), Error::<T>::InvalidKittyIndex);
 
+            // 我的存储类型Kitties并不是Option类型，所以没有ok_or方法
             // let kitty1 = Self::kitties(kitty_id_1).ok_or(Error::<T>::InvalidKittyIndex)?;
             // let kitty2 = Self::kitties(kitty_id_2).ok_or(Error::<T>::InvalidKittyIndex)?;
 
-            let kitty1 = Kitties::<T>::get(&kitty_id_1);
-            let kitty2= Kitties::<T>::get(&kitty_id_2);
+            let kitty1 = Self::kitties(kitty_id_1);
+            let kitty2 = Self::kitties(kitty_id_2);
+
+            // let kitty1 = Kitties::<T>::get(&kitty_id_1);
+            // let kitty2= Kitties::<T>::get(&kitty_id_2);
 
 
             let kitty_id = Self::get_kitty_index().unwrap();
@@ -173,16 +213,18 @@ pub mod pallet {
             }
 
             let kitty_obj = Kitty {
-                owner: who.clone(),
+                price: 0u8.into(),
                 id: kitty_id,
                 dna: new_dna
             };
 
             Kitties::<T>::insert(kitty_id, kitty_obj);
 
-            // Owner::<T>::insert(kitty_id, Some(who.clone()));
+            Owner::<T>::insert(kitty_id, Some(who.clone()));
 
-            KittiesCount::<T>::put(kitty_id + 1);
+            let new_id = Self::next_kitty_index().unwrap();
+            KittiesCount::<T>::put(new_id);
+            // KittiesCount::<T>::put(kitty_id + 1);
 
             Self::deposit_event(Event::KittyCreate(who, kitty_id));
 
@@ -200,14 +242,23 @@ pub mod pallet {
             payload.using_encoded(blake2_128)
         }
 
+        fn next_kitty_index() -> Result<u32, Error::<T>> {
+            let kitty_index = Self::kitties_count();
+            let new_id = kitty_index.checked_add(1).ok_or(Error::<T>::KittiesCountOverflow)?;
+            Ok(new_id)
+        }
+
         fn get_kitty_index() -> Result<u32, Error::<T>> {
-            return match Self::kitties_count() {
-                Some(id) => {
-                    ensure!(id != KittyIndex::max_value(), Error::<T>::KittiesCountOverflow);
-                    Ok(id)
-                },
-                None => Ok(0)
-            }
+            // match Self::kitties_count() {
+            //     Some(id) => {
+            //         ensure!(id != KittyIndex::max_value(), Error::<T>::KittiesCountOverflow);
+            //         Ok(id)
+            //     },
+            //     None => Ok(0)
+            // }
+            let kitty_index = Self::kitties_count();
+            let _new_id = kitty_index.checked_add(1).ok_or(Error::<T>::KittiesCountOverflow)?;
+            Ok(kitty_index)
         }
     }
 }
