@@ -21,7 +21,9 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use sp_io::hashing::blake2_128;
     use codec::{Encode, Decode};
+    // use frame_support::dispatch::DispatchResultWithPostInfo;
     use sp_runtime::traits::StaticLookup;
+    use frame_support::traits::{Currency, ExistenceRequirement};
 
     // #[derive(Encode, Decode)]
     // pub struct Kitty(pub [u8; 16]);
@@ -86,7 +88,7 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn owner)]
-    pub type Owner<T: Config> = StorageMap<_, Blake2_128Concat, KittyIndex, Option<T::AccountId>, OptionQuery>;
+    pub type Owner<T: Config> = StorageMap<_, Blake2_128Concat, KittyIndex, Option<T::AccountId>, ValueQuery>;
 
     // bid是买价，是一个vec，里面包含了很多的购买价格
     #[pallet::storage]
@@ -118,6 +120,9 @@ pub mod pallet {
         SameParentIndex,
         InvalidKittyIndex,
         KittyExisted,
+        KittyNotForSale,
+        SelfBuy,
+        OutOfBudget,
     }
 
     #[pallet::call]
@@ -133,6 +138,7 @@ pub mod pallet {
             //     },
             //     None => 0
             // };
+            // todo 存在恶意生成猫的行为，猫应该要质押花钱才可以买
 
             // 生成一个猫的id
             let kitty_id = Self::get_kitty_index().unwrap();
@@ -167,13 +173,62 @@ pub mod pallet {
         }
 
         #[pallet::weight(0)]
+        pub fn buy(origin: OriginFor<T>, kitty_id: KittyIndex, bid_price: T::Balance) -> DispatchResult {
+            let buyer = ensure_signed(origin)?;
+
+            // 保证猫是存在的
+            ensure!(
+                Kitties::<T>::contains_key(kitty_id),
+                Error::<T>::InvalidKittyIndex
+            );
+
+            // 猫主人自己是不能买猫的
+            let owner = Self::owner(kitty_id).ok_or(Error::<T>::NotOwner)?;
+            ensure!(buyer != owner, Error::<T>::SelfBuy);
+
+            let mut kitty_obj = Self::kitties(kitty_id);
+            let kitty_price = kitty_obj.price;
+
+            // 确认猫是可以交易的
+            ensure!(kitty_obj.for_sale, Error::<T>::KittyNotForSale);
+            // ensure!(!kitty_price.is_zero(), Error::<T>::KittyNotForSale);
+
+            ensure!(kitty_price <= bid_price, Error::<T>::OutOfBudget);
+
+            <pallet_balances::Pallet<T> as Currency<_>>::transfer(
+                &buyer,
+                &owner,
+                bid_price,
+                ExistenceRequirement::KeepAlive,
+            )?;
+
+            // 回写猫价格
+            kitty_obj.price = bid_price.into();
+            // 关闭交易
+            kitty_obj.for_sale = false;
+            // 回写
+            Kitties::<T>::insert(kitty_id, kitty_obj);
+
+            // 转移猫的所有权
+            Self::transfer_to(owner, buyer, kitty_id)
+
+        }
+
+        // #[pallet::weight(0)]
+        // pub fn display(origin: OriginFor<T>, kitty_id: KittyIndex) -> DispatchResultWithPostInfo {
+        //     // 显示猫的信息，包括dna和是否能购买，购买底价
+        //     // todo 不知道怎么做
+        //     Ok(().into())
+        // }
+
+        #[pallet::weight(0)]
         pub fn set_price(origin: OriginFor<T>, kitty_id: KittyIndex, new_price: T::Balance, for_sale: bool) -> DispatchResult {
             let who = ensure_signed(origin)?;
             ensure!(Kitties::<T>::contains_key(&kitty_id), Error::<T>::InvalidKittyIndex);
 
             let owner = Self::owner(kitty_id).ok_or(Error::<T>::NotOwner)?;
 
-            ensure!(Some(who) == owner, Error::<T>::NotOwner);
+            ensure!(who == owner, Error::<T>::NotOwner);
 
             let mut kitty_obj = Self::kitties(kitty_id);
             kitty_obj.price = new_price;
@@ -191,19 +246,18 @@ pub mod pallet {
         }
 
         #[pallet::weight(0)]
-        pub fn transfer(origin: OriginFor<T>, new_owner: <T::Lookup as StaticLookup>::Source, kitty_id: KittyIndex) ->
-        DispatchResult
-        {
-            let who = ensure_signed(origin)?;
-            let new_owner = T::Lookup::lookup(new_owner)?;
+        // pub fn transfer(origin: OriginFor<T>, new_owner: <T::Lookup as StaticLookup>::Source, kitty_id: KittyIndex) ->
+        pub fn transfer(from: OriginFor<T>, to: <T::Lookup as StaticLookup>::Source, kitty_id: KittyIndex) -> DispatchResult {
+            let from = ensure_signed(from)?;
+            let to = T::Lookup::lookup(to)?;
 
-            ensure!(Kitties::<T>::contains_key(&kitty_id), Error::<T>::InvalidKittyIndex);
+            // ensure!(Kitties::<T>::contains_key(&kitty_id), Error::<T>::InvalidKittyIndex);
 
-            let owner = Self::owner(kitty_id).ok_or(Error::<T>::NotOwner)?;
+            // let owner = Self::owner(kitty_id).ok_or(Error::<T>::NotOwner)?;
 
-            ensure!(Some(who.clone()) == owner, Error::<T>::NotOwner);
+            // ensure!(from == owner, Error::<T>::NotOwner);
 
-            Owner::<T>::insert(kitty_id, Some(new_owner.clone()));
+            // Owner::<T>::insert(kitty_id, Some(to.clone()));
 
             // let kitty_obj = Kitties::<T>::get(&kitty_id);
 
@@ -217,15 +271,14 @@ pub mod pallet {
             //     c.owner = new_owner.clone();
             // });
 
-            Self::deposit_event(Event::KittyTransfer(who, new_owner, kitty_id));
+            // Self::deposit_event(Event::KittyTransfer(from, to, kitty_id));
 
-            Ok(())
+            // Ok(())
+            Self::transfer_to(from, to, kitty_id)
         }
 
         #[pallet::weight(0)]
-        pub fn breed(origin: OriginFor<T>, kitty_id_1: KittyIndex, kitty_id_2: KittyIndex)
-                     -> DispatchResult
-        {
+        pub fn breed(origin: OriginFor<T>, kitty_id_1: KittyIndex, kitty_id_2: KittyIndex) -> DispatchResult {
             let who = ensure_signed(origin)?;
             ensure!(kitty_id_1 != kitty_id_2, Error::<T>::SameParentIndex);
             ensure!(Kitties::<T>::contains_key(&kitty_id_1), Error::<T>::InvalidKittyIndex);
@@ -318,6 +371,15 @@ pub mod pallet {
             let kitty_index = Self::kitties_count();
             let _new_id = kitty_index.checked_add(1).ok_or(Error::<T>::KittiesCountOverflow)?;
             Ok(kitty_index)
+        }
+
+        fn transfer_to(from: T::AccountId, to: T::AccountId, kitty_id: KittyIndex) -> DispatchResult {
+            ensure!(Kitties::<T>::contains_key(&kitty_id), Error::<T>::InvalidKittyIndex);
+            let owner = Self::owner(kitty_id).ok_or(Error::<T>::NotOwner)?;
+            ensure!(from == owner, Error::<T>::NotOwner);
+            Owner::<T>::insert(kitty_id, Some(to.clone()));
+            Self::deposit_event(Event::KittyTransfer(from, to, kitty_id));
+            Ok(())
         }
     }
 }
