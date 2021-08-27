@@ -21,6 +21,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use sp_io::hashing::blake2_128;
     use codec::{Encode, Decode};
+    use sp_runtime::traits::StaticLookup;
 
     // #[derive(Encode, Decode)]
     // pub struct Kitty(pub [u8; 16]);
@@ -33,8 +34,23 @@ pub mod pallet {
         price: Balance,
         id: KittyIndex,
         dna: [u8; 16],
-
+        for_sale: bool
     }
+
+    #[derive(Encode, Decode, Default, Clone)]
+    pub struct MarketBidDetail<Balance, AccountID> {
+        id: KittyIndex,
+        price: Balance,
+        who: AccountID
+    }
+
+    impl<Balance, AccountID> MarketBidDetail<Balance, AccountID> {
+        pub fn get_high_price() {
+
+        }
+    }
+
+    // type MarketDetail = Vec<KittyIndex>;
 
     /// Configure the pallet by specifying the parameters and types on which it depends.
     #[pallet::config]
@@ -71,6 +87,23 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn owner)]
     pub type Owner<T: Config> = StorageMap<_, Blake2_128Concat, KittyIndex, Option<T::AccountId>, OptionQuery>;
+
+    // bid是买价，是一个vec，里面包含了很多的购买价格
+    #[pallet::storage]
+    #[pallet::getter(fn market_bid)]
+    pub type MarketBid<T: Config> = StorageMap<_, Blake2_128Concat, KittyIndex, Option<MarketBidDetail<T::Balance, T::AccountId>>, OptionQuery>;
+
+    // ask是卖价 不知道v2怎么定义一个Vec，这里就用一个固定key的map里面存个Vec吧
+    // v1可以这么用
+    // decl_storage! {
+    // 	trait Store for Module<T: Config> as VecSet {
+    // 		// The set of all members. Stored as a single vec
+    // 		Members get(fn members): Vec<T::AccountId>;
+    // 	}
+    // }
+    #[pallet::storage]
+    #[pallet::getter(fn market_ask)]
+    pub type MarketAsk<T: Config> = StorageMap<_, Blake2_128Concat, u8, Option<Vec<KittyIndex>>, ValueQuery>;
 
     // 注意: ValueQuery 和 OptionQuery 差别
     // 默认为ValueQuery
@@ -112,6 +145,7 @@ pub mod pallet {
 
             let kitty_obj = Kitty {
                 price: 0u8.into(),
+                for_sale: false,
                 id: kitty_id,
                 dna
             };
@@ -133,7 +167,7 @@ pub mod pallet {
         }
 
         #[pallet::weight(0)]
-        pub fn set_price(origin: OriginFor<T>, kitty_id: KittyIndex, new_price: T::Balance) -> DispatchResult {
+        pub fn set_price(origin: OriginFor<T>, kitty_id: KittyIndex, new_price: T::Balance, for_sale: bool) -> DispatchResult {
             let who = ensure_signed(origin)?;
             ensure!(Kitties::<T>::contains_key(&kitty_id), Error::<T>::InvalidKittyIndex);
 
@@ -143,17 +177,25 @@ pub mod pallet {
 
             let mut kitty_obj = Self::kitties(kitty_id);
             kitty_obj.price = new_price;
+            kitty_obj.for_sale = for_sale;
 
             Kitties::<T>::insert(kitty_id, kitty_obj);
+
+            // 然后要把这个猫推向市场
+            if for_sale {
+                // 推向市场
+                let _ = Self::add_kitty_to_ask_market(kitty_id);
+            }
 
             Ok(())
         }
 
         #[pallet::weight(0)]
-        pub fn transfer(origin: OriginFor<T>, new_owner: T::AccountId, kitty_id: KittyIndex) ->
+        pub fn transfer(origin: OriginFor<T>, new_owner: <T::Lookup as StaticLookup>::Source, kitty_id: KittyIndex) ->
         DispatchResult
         {
             let who = ensure_signed(origin)?;
+            let new_owner = T::Lookup::lookup(new_owner)?;
 
             ensure!(Kitties::<T>::contains_key(&kitty_id), Error::<T>::InvalidKittyIndex);
 
@@ -214,6 +256,7 @@ pub mod pallet {
 
             let kitty_obj = Kitty {
                 price: 0u8.into(),
+                for_sale: false,
                 id: kitty_id,
                 dna: new_dna
             };
@@ -240,6 +283,22 @@ pub mod pallet {
                 <frame_system::Pallet<T>>::extrinsic_index(),
             );
             payload.using_encoded(blake2_128)
+        }
+
+        fn add_kitty_to_ask_market(kitty: KittyIndex) -> Result<(), Error::<T>> {
+            let mut market_ask: Vec<KittyIndex> = match Self::market_ask(1) {
+                Some(ask) => ask,
+                None => vec![],
+            };
+
+            match market_ask.binary_search(&kitty) {
+                Ok(_) => Ok(()),
+                Err(index) => {
+                    market_ask.insert(index,kitty.clone());
+                    MarketAsk::<T>::insert(1, Some(market_ask));
+                    Ok(())
+                }
+            }
         }
 
         fn next_kitty_index() -> Result<u32, Error::<T>> {
