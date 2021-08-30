@@ -25,6 +25,7 @@ frame_support::construct_runtime!(
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
     pub const SS58Prefix: u8 = 42;
+    pub const AssetDeposit: u64 = 1;
 }
 
 impl system::Config for Test {
@@ -59,8 +60,13 @@ impl pallet_kitties::Config for Test {
 
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
-    system::GenesisConfig::default()
-        .build_storage::<Test>()
-        .unwrap()
-        .into()
+    // system::GenesisConfig::default()
+    //     .build_storage::<Test>()
+    //     .unwrap()
+    //     .into()
+    let t = system::GenesisConfig::default().build_storage::<Test>().unwrap();
+
+    let mut ext = sp_io::TestExternalities::new(t);
+    ext.execute_with(|| System::set_block_number(1));
+    ext
 }
