@@ -16,19 +16,25 @@ mod benchmarking;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use frame_support::{dispatch::DispatchResult, pallet_prelude::*, traits::Randomness};
+    use frame_support::{dispatch::DispatchResult, pallet_prelude::*};
     // use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
     use sp_io::hashing::blake2_128;
     use codec::{Encode, Decode};
     // use frame_support::dispatch::DispatchResultWithPostInfo;
-    use sp_runtime::traits::StaticLookup;
-    use frame_support::traits::{Currency, ExistenceRequirement};
+    use sp_runtime::traits::{StaticLookup, Zero};
+    use frame_support::traits::{ExistenceRequirement, ReservableCurrency};
+    use frame_support::traits::Currency;
+    use frame_support::traits::Randomness;
+    use frame_system::Config as SystemConfig;
 
     // #[derive(Encode, Decode)]
     // pub struct Kitty(pub [u8; 16]);
 
     type KittyIndex = u32;
+
+    type DepositBalanceOf<T> =
+    <<T as Config>::Currency as Currency<<T as SystemConfig>::AccountId>>::Balance;
 
     // emm owner还是从里面拿掉吧
     #[derive(Encode, Decode, Default, PartialEq, Clone)]
@@ -56,10 +62,14 @@ pub mod pallet {
 
     /// Configure the pallet by specifying the parameters and types on which it depends.
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_balances::Config {
+    pub trait Config: pallet_balances::Config + frame_system::Config {
         /// Because this pallet emits events, it depends on the runtime's definition of an event.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type Randomness: Randomness<Self::Hash, Self::BlockNumber>;
+        //type Balance: Member + Parameter + AtLeast32BitUnsigned + Default + Copy + MaxEncodedLen;
+        type Currency: ReservableCurrency<Self::AccountId>;
+        #[pallet::constant]
+        type AssetDeposit: Get<DepositBalanceOf<Self>>;
     }
 
     #[pallet::pallet]
@@ -139,6 +149,9 @@ pub mod pallet {
             //     None => 0
             // };
             // todo 存在恶意生成猫的行为，猫应该要质押花钱才可以买
+            // 实现了，并没有测试过，借鉴了官方assets模块的内容
+            let deposit = T::AssetDeposit::get();
+            T::Currency::reserve(&who, deposit)?;
 
             // 生成一个猫的id
             let kitty_id = Self::get_kitty_index().unwrap();
@@ -191,11 +204,12 @@ pub mod pallet {
 
             // 确认猫是可以交易的
             ensure!(kitty_obj.for_sale, Error::<T>::KittyNotForSale);
-            // ensure!(!kitty_price.is_zero(), Error::<T>::KittyNotForSale);
+            ensure!(!kitty_price.is_zero(), Error::<T>::KittyNotForSale);
 
             ensure!(kitty_price <= bid_price, Error::<T>::OutOfBudget);
 
             <pallet_balances::Pallet<T> as Currency<_>>::transfer(
+            // Self::Currency::transfer(
                 &buyer,
                 &owner,
                 bid_price,
