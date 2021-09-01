@@ -44,6 +44,8 @@ std = [
     'frame-support/std',
     'frame-system/std',
     'frame-benchmarking/std',
+    'sp-std/std',
+    'pallet-balances/std',
 ]
 try-runtime = ['frame-support/try-runtime']
 [dependencies.codec]
@@ -87,6 +89,12 @@ version = '3.0.0'
 version = '1.0.119'
 
 [dependencies.pallet-balances]
+default-features = false
+version = '3.0.0'
+git = 'https://github.com/paritytech/substrate.git'
+tag = 'monthly-2021-07'
+
+[dev-dependencies.pallet-balances]
 default-features = false
 version = '3.0.0'
 git = 'https://github.com/paritytech/substrate.git'

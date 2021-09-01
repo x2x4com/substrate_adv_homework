@@ -288,6 +288,7 @@ parameter_types! {
 	pub const StringLimit: u32 = 50;
 	pub const MetadataDepositBase: Balance = 10 * DOLLARS;
 	pub const MetadataDepositPerByte: Balance = 1 * DOLLARS;
+	pub const KittyReserve: u64 = 1_000;
 }
 
 impl pallet_kitties::Config for Runtime {
@@ -295,7 +296,9 @@ impl pallet_kitties::Config for Runtime {
     type Randomness = RandomnessCollectiveFlip;
     type Currency = Balances;
     type AssetDeposit = ApprovalDeposit;
+    type KittyReserve = KittyReserve;
     type KittyIndex = u32;
+    type Balance = u64;
 }
 
 impl pallet_assets::Config for Runtime {
