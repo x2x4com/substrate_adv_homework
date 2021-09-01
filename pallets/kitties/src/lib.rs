@@ -20,27 +20,29 @@ pub mod pallet {
     // use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
     use sp_io::hashing::blake2_128;
-    use codec::{Encode, Decode};
+    use codec::{Encode, Decode, EncodeLike};
     // use frame_support::dispatch::DispatchResultWithPostInfo;
     use sp_runtime::traits::{StaticLookup, Zero};
     use frame_support::traits::{ExistenceRequirement, ReservableCurrency};
     use frame_support::traits::Currency;
     use frame_support::traits::Randomness;
     use frame_system::Config as SystemConfig;
+    // use codec::HasCompact;
     // use sp_std::vec::Vec;
     use sp_std::prelude::*;
+    use sp_runtime::traits::{AtLeast32BitUnsigned, Bounded};
 
     // #[derive(Encode, Decode)]
     // pub struct Kitty(pub [u8; 16]);
 
-    type KittyIndex = u32;
+    // type KittyIndex = u32;
 
     type DepositBalanceOf<T> =
     <<T as Config>::Currency as Currency<<T as SystemConfig>::AccountId>>::Balance;
 
     // emm owner还是从里面拿掉吧
     #[derive(Encode, Decode, Default, PartialEq, Clone)]
-    pub struct Kitty<Balance> {
+    pub struct Kitty<Balance, KittyIndex> {
         price: Balance,
         id: KittyIndex,
         dna: [u8; 16],
@@ -48,13 +50,13 @@ pub mod pallet {
     }
 
     #[derive(Encode, Decode, Default, Clone)]
-    pub struct MarketBidDetail<Balance, AccountID> {
+    pub struct MarketBidDetail<Balance, AccountID, KittyIndex> {
         id: KittyIndex,
         price: Balance,
         who: AccountID
     }
 
-    impl<Balance, AccountID> MarketBidDetail<Balance, AccountID> {
+    impl<Balance, AccountID, KittyIndex> MarketBidDetail<Balance, AccountID, KittyIndex> {
         pub fn get_high_price() {
 
         }
@@ -72,6 +74,7 @@ pub mod pallet {
         type Currency: ReservableCurrency<Self::AccountId>;
         #[pallet::constant]
         type AssetDeposit: Get<DepositBalanceOf<Self>>;
+        type KittyIndex: Parameter + AtLeast32BitUnsigned + Default + Copy + Bounded;
     }
 
     #[pallet::pallet]
@@ -84,8 +87,8 @@ pub mod pallet {
     #[pallet::metadata(T::AccountId = "AccountId")]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        KittyCreate(T::AccountId, KittyIndex),
-        KittyTransfer(T::AccountId, T::AccountId, KittyIndex),
+        KittyCreate(T::AccountId, T::KittyIndex),
+        KittyTransfer(T::AccountId, T::AccountId, T::KittyIndex),
     }
 
 
@@ -96,16 +99,16 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn kitties)]
     // pub type Kitties<T: Config> = StorageMap<_, Blake2_128Concat, KittyIndex, Option<Kitty<T::AccountId>>, ValueQuery>;
-    pub type Kitties<T: Config> = StorageMap<_, Blake2_128Concat, KittyIndex, Kitty<T::Balance>, ValueQuery>;
+    pub type Kitties<T: Config> = StorageMap<_, Blake2_128Concat, T::KittyIndex, Kitty<T::Balance, T::KittyIndex>, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn owner)]
-    pub type Owner<T: Config> = StorageMap<_, Blake2_128Concat, KittyIndex, Option<T::AccountId>, ValueQuery>;
+    pub type Owner<T: Config> = StorageMap<_, Blake2_128Concat, T::KittyIndex, Option<T::AccountId>, ValueQuery>;
 
     // bid是买价，是一个vec，里面包含了很多的购买价格
     #[pallet::storage]
     #[pallet::getter(fn market_bid)]
-    pub type MarketBid<T: Config> = StorageMap<_, Blake2_128Concat, KittyIndex, Option<MarketBidDetail<T::Balance, T::AccountId>>, OptionQuery>;
+    pub type MarketBid<T: Config> = StorageMap<_, Blake2_128Concat, T::KittyIndex, Option<MarketBidDetail<T::Balance, T::AccountId, T::KittyIndex>>, OptionQuery>;
 
     // ask是卖价 不知道v2怎么定义一个Vec，这里就用一个固定key的map里面存个Vec吧
     // v1可以这么用
@@ -117,7 +120,7 @@ pub mod pallet {
     // }
     #[pallet::storage]
     #[pallet::getter(fn market_ask)]
-    pub type MarketAsk<T: Config> = StorageMap<_, Blake2_128Concat, u8, Option<Vec<KittyIndex>>, ValueQuery>;
+    pub type MarketAsk<T: Config> = StorageMap<_, Blake2_128Concat, u8, Option<Vec<T::KittyIndex>>, ValueQuery>;
 
     // 注意: ValueQuery 和 OptionQuery 差别
     // 默认为ValueQuery
@@ -188,7 +191,7 @@ pub mod pallet {
         }
 
         #[pallet::weight(0)]
-        pub fn buy(origin: OriginFor<T>, kitty_id: KittyIndex, bid_price: T::Balance) -> DispatchResult {
+        pub fn buy(origin: OriginFor<T>, kitty_id: T::KittyIndex, bid_price: T::Balance) -> DispatchResult {
             let buyer = ensure_signed(origin)?;
 
             // 保证猫是存在的
@@ -238,32 +241,17 @@ pub mod pallet {
         // }
 
         #[pallet::weight(0)]
-        pub fn set_price(origin: OriginFor<T>, kitty_id: KittyIndex, new_price: T::Balance, for_sale: bool) -> DispatchResult {
+        pub fn sale(origin: OriginFor<T>, kitty_id: T::KittyIndex, kitty_price: T::Balance) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(Kitties::<T>::contains_key(&kitty_id), Error::<T>::InvalidKittyIndex);
-
             let owner = Self::owner(kitty_id).ok_or(Error::<T>::NotOwner)?;
-
             ensure!(who == owner, Error::<T>::NotOwner);
 
-            let mut kitty_obj = Self::kitties(kitty_id);
-            kitty_obj.price = new_price;
-            kitty_obj.for_sale = for_sale;
-
-            Kitties::<T>::insert(kitty_id, kitty_obj);
-
-            // 然后要把这个猫推向市场
-            if for_sale {
-                // 推向市场
-                let _ = Self::add_kitty_to_ask_market(kitty_id);
-            }
-
-            Ok(())
+            Self::set_kitty_price(kitty_id, kitty_price, true)
         }
 
         #[pallet::weight(0)]
         // pub fn transfer(origin: OriginFor<T>, new_owner: <T::Lookup as StaticLookup>::Source, kitty_id: KittyIndex) ->
-        pub fn transfer(from: OriginFor<T>, to: <T::Lookup as StaticLookup>::Source, kitty_id: KittyIndex) -> DispatchResult {
+        pub fn transfer(from: OriginFor<T>, to: <T::Lookup as StaticLookup>::Source, kitty_id: T::KittyIndex) -> DispatchResult {
             let from = ensure_signed(from)?;
             let to = T::Lookup::lookup(to)?;
 
@@ -294,7 +282,7 @@ pub mod pallet {
         }
 
         #[pallet::weight(0)]
-        pub fn breed(origin: OriginFor<T>, kitty_id_1: KittyIndex, kitty_id_2: KittyIndex) -> DispatchResult {
+        pub fn breed(origin: OriginFor<T>, kitty_id_1: T::KittyIndex, kitty_id_2: T::KittyIndex) -> DispatchResult {
             let who = ensure_signed(origin)?;
             ensure!(kitty_id_1 != kitty_id_2, Error::<T>::SameParentIndex);
             ensure!(Kitties::<T>::contains_key(&kitty_id_1), Error::<T>::InvalidKittyIndex);
@@ -354,8 +342,8 @@ pub mod pallet {
             payload.using_encoded(blake2_128)
         }
 
-        fn add_kitty_to_ask_market(kitty: KittyIndex) -> Result<(), Error::<T>> {
-            let mut market_ask: Vec<KittyIndex> = match Self::market_ask(1) {
+        fn add_kitty_to_ask_market(kitty: T::KittyIndex) -> Result<(), Error::<T>> {
+            let mut market_ask: Vec<T::KittyIndex> = match Self::market_ask(1) {
                 Some(ask) => ask,
                 None => Vec::new()
             };
@@ -389,12 +377,29 @@ pub mod pallet {
             Ok(kitty_index)
         }
 
-        fn transfer_to(from: T::AccountId, to: T::AccountId, kitty_id: KittyIndex) -> DispatchResult {
+        fn transfer_to(from: T::AccountId, to: T::AccountId, kitty_id: T::KittyIndex) -> DispatchResult {
             ensure!(Kitties::<T>::contains_key(&kitty_id), Error::<T>::InvalidKittyIndex);
             let owner = Self::owner(kitty_id).ok_or(Error::<T>::NotOwner)?;
             ensure!(from == owner, Error::<T>::NotOwner);
             Owner::<T>::insert(kitty_id, Some(to.clone()));
             Self::deposit_event(Event::KittyTransfer(from, to, kitty_id));
+            Ok(())
+        }
+
+        fn set_kitty_price(kitty_id: T::KittyIndex, new_price: T::Balance, for_sale: bool) -> DispatchResult {
+            ensure!(Kitties::<T>::contains_key(&kitty_id), Error::<T>::InvalidKittyIndex);
+
+            let mut kitty_obj = Self::kitties(kitty_id);
+            kitty_obj.price = new_price;
+            kitty_obj.for_sale = for_sale;
+
+            Kitties::<T>::insert(kitty_id, kitty_obj);
+
+            // 然后要把这个猫推向市场
+            if for_sale {
+                // 推向市场
+                let _ = Self::add_kitty_to_ask_market(kitty_id);
+            }
             Ok(())
         }
     }
