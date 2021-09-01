@@ -27,6 +27,8 @@ pub mod pallet {
     use frame_support::traits::Currency;
     use frame_support::traits::Randomness;
     use frame_system::Config as SystemConfig;
+    // use sp_std::vec::Vec;
+    use sp_std::prelude::*;
 
     // #[derive(Encode, Decode)]
     // pub struct Kitty(pub [u8; 16]);
@@ -355,7 +357,7 @@ pub mod pallet {
         fn add_kitty_to_ask_market(kitty: KittyIndex) -> Result<(), Error::<T>> {
             let mut market_ask: Vec<KittyIndex> = match Self::market_ask(1) {
                 Some(ask) => ask,
-                None => vec![],
+                None => Vec::new()
             };
 
             match market_ask.binary_search(&kitty) {
