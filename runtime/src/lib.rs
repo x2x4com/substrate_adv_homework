@@ -295,10 +295,10 @@ impl pallet_kitties::Config for Runtime {
     type Event = Event;
     type Randomness = RandomnessCollectiveFlip;
     type Currency = Balances;
-    type AssetDeposit = ApprovalDeposit;
+    // type AssetDeposit = ApprovalDeposit;
     type KittyReserve = KittyReserve;
     type KittyIndex = u32;
-    type Balance = u64;
+    // type Balance = u64;
 }
 
 impl pallet_assets::Config for Runtime {
