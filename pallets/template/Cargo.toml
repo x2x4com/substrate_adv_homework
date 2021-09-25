@@ -39,6 +39,7 @@ std = [
     'frame-support/std',
     'frame-system/std',
     'frame-benchmarking/std',
+    'sp-std/std'
 ]
 try-runtime = ['frame-support/try-runtime']
 [dependencies.codec]
@@ -61,6 +62,12 @@ tag = 'monthly-2021-07'
 version = '3.0.0'
 
 [dependencies.frame-system]
+default-features = false
+git = 'https://github.com/paritytech/substrate.git'
+tag = 'monthly-2021-07'
+version = '3.0.0'
+
+[dependencies.sp-std]
 default-features = false
 git = 'https://github.com/paritytech/substrate.git'
 tag = 'monthly-2021-07'
