@@ -151,3 +151,49 @@ cargo build --features runtime-benchmarks --release
 Benchmarking运行截图
 
 ![1](images/1.png)
+
+本地测试多机器启动
+
+启动命令
+
+bootnode
+
+```
+./target/release/node-template --bob --base-path /tmp/node1 --chain x2x4-raw.json --name bootnode1
+```
+
+validator1 
+
+```
+./target/release/node-template --charlie --base-path /tmp/v1 --chain x2x4-raw.json --name v1 --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWCadYc7J1Vyvm3mwMxYHMsEMCChzjbmZZusB73BK4U5Kx --port 30334
+```
+
+validator2
+
+```
+./target/release/node-template --dave --base-path /tmp/v2 --chain x2x4-raw.json --name v2 --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWCadYc7J1Vyvm3mwMxYHMsEMCChzjbmZZusB73BK4U5Kx --port 30335
+```
+
+validator3
+
+```
+./target/release/node-template --alice --base-path /tmp/v3 --chain x2x4-raw.json --name v3 --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWCadYc7J1Vyvm3mwMxYHMsEMCChzjbmZZusB73BK4U5Kx --port 30336
+```
+
+
+bootnode
+
+![b](images/boot1.png)
+
+验证人1
+
+![v1](images/v1.png)
+
+验证人2
+
+![v2](images/v2.png)
+
+验证人3
+
+![v3](images/v3.png)
+

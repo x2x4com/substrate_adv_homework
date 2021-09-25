@@ -3,7 +3,7 @@
   "id": "x2x4-testnet",
   "chainType": "Live",
   "bootNodes": [
-    "/ip4/127.0.0.1/tcp/30333/p2p/12D3KooWBVS4fYunzKx9K6e95we9U4Dyt27YcTSXhEB8PwEeVTZM"
+    "/ip4/127.0.0.1/tcp/30333/p2p/12D3KooWCadYc7J1Vyvm3mwMxYHMsEMCChzjbmZZusB73BK4U5Kx"
   ],
   "telemetryEndpoints": [
     [
