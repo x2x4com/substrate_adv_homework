@@ -1,6 +1,6 @@
 # 第六课的答题1
 
-流程
+## 流程
 
 1. Cargo.toml 引入benchmarking， 
 2. 添加runtime-benchmarks编译标签
@@ -104,7 +104,7 @@ cargo build --features runtime-benchmarks --release
 #[pallet::weight(这里用平均值*1.2*1_000_000 + T::DbWeight::get().writes(1))]
 ```
 
-碰到的问题
+## 碰到的问题
 
 1. 本地的node-template必须编译成带benchmark features，否则报错，这一步一定要最先做，因为改了pallet文件后，在没有生成weight.rs文件前，node-template编译会报错的
    
